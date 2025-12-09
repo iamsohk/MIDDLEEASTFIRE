@@ -6,24 +6,22 @@
     <title>MIDDLE EAST FIRE TEAM DASHBOARD</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts: 工業風/機械字體 -->
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, deleteDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
         // =========================================================================
-        //  FIREBASE 設定區
+        //  FIREBASE CONFIG
         // =========================================================================
-        
         const envConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
         const envAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const envAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        // [已確認：你的 Config 設定正確]
         const manualConfig = {
             apiKey: "AIzaSyDZfiar_D0bAhlkZFqc_9RqUIO6XTT7UtQ",
             authDomain: "fire-team-dashboard.firebaseapp.com",
@@ -33,100 +31,68 @@
             appId: "1:270034667438:web:cc98aa925e2105fbd4aa3f"
         };
 
-        // 智能切換：預覽時用 AI 環境，GitHub 時用你的 Manual Config
         const firebaseConfig = envConfig || manualConfig;
         const appId = envAppId;
 
         let db, auth, currentUser;
+        let currentYear, currentMonth;
+        let eventsCache = {}; 
 
         async function initApp() {
             try {
-                // 初始化
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // 處理登入
                 if (envAuthToken) {
                     await signInWithCustomToken(auth, envAuthToken);
                 } else {
                     await signInAnonymously(auth);
                 }
 
-                // 監聽登入狀態
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         currentUser = user;
-                        console.log("System Status: User Authenticated");
+                        initCalendar(); 
+                        initRealtimeListeners();
                     }
                 });
-
             } catch (e) {
                 console.error("Firebase Init Error:", e);
-                // [更新] 更詳細的錯誤提示，幫助除錯
-                let errorMsg = "系統連線失敗 (System Error)\n\n";
-                
-                if (e.code === 'auth/operation-not-allowed') {
-                    errorMsg += "原因：未開啟「匿名登入」權限。\n解決：請去 Firebase Console -> Authentication -> 把 'Anonymous' 設為 Enable。";
-                } else if (e.code === 'permission-denied') {
-                    errorMsg += "原因：資料庫權限不足。\n解決：請檢查 Firestore Rules 是否設為 Test Mode。";
-                } else {
-                    errorMsg += "錯誤訊息：" + e.message + "\n\n請檢查 Config 是否填錯，或 Database 是否已建立。";
-                }
-                
-                alert(errorMsg);
+                alert("系統連線失敗");
             }
         }
 
         initApp();
         
-        // --- 天氣功能 ---
+        // --- 天氣 ---
         async function fetchWeather() {
             try {
                 const response = await fetch('https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc');
                 const data = await response.json();
-                const temp = data.temperature.data[0].value;
+                const districtTemp = data.temperature.data.find(d => d.place === "香港公園")?.value || data.temperature.data[0].value;
                 const iconId = data.icon[0];
                 const iconUrl = `https://www.hko.gov.hk/images/HKOWxIconOutline/pic${iconId}.png`;
                 
-                document.getElementById('weather-temp').innerText = `${temp}°C`;
+                document.getElementById('weather-temp').innerText = `${districtTemp}°C`;
                 document.getElementById('weather-icon').src = iconUrl;
                 document.getElementById('weather-desc').innerText = "HONG KONG";
-            } catch (error) {
-                console.error("Weather Error", error);
-            }
+            } catch (error) { console.error(error); }
         }
         fetchWeather();
         setInterval(fetchWeather, 1800000);
 
-
-        // --- 核心邏輯部分 ---
-
-        // [關鍵修正] 智能路徑選擇器
-        // 目的：在 GitHub 用簡潔路徑 (tasks)，在 AI 預覽用長路徑
         function getCollectionRef(colName) {
-             if (envConfig) {
-                 // AI 預覽環境 (必須)
-                 return collection(db, 'artifacts', appId, 'public', 'data', colName);
-             } else {
-                 // GitHub / 正式環境 (簡潔路徑，方便你在 Console 管理)
-                 return collection(db, colName);
-             }
+             if (envConfig) return collection(db, 'artifacts', appId, 'public', 'data', colName);
+             else return collection(db, colName);
         }
 
         window.checkPass = () => {
             const pass = document.getElementById('access-code').value;
-            if (pass === '8888') {
+            if (pass === '') {
                 document.getElementById('login-modal').classList.add('hidden');
                 document.getElementById('main-app').classList.remove('hidden');
-                if (currentUser) {
-                    initRealtimeListeners();
-                } else {
-                    setTimeout(() => {
-                         if(currentUser) initRealtimeListeners();
-                         else alert("正在連線到數據庫，請稍候...");
-                    }, 1000);
-                }
+                window.dispatchEvent(new Event('resize'));
             } else {
                 const errorMsg = document.getElementById('error-msg');
                 errorMsg.classList.remove('hidden');
@@ -134,18 +100,147 @@
             }
         };
 
-        function initRealtimeListeners() {
-            if (!db || !currentUser) return;
-
-            // Tasks 監聽
-            const tasksRef = getCollectionRef("tasks");
-            const qTasks = query(tasksRef, orderBy("createdAt", "desc"));
+        // --- 月曆邏輯 (ROSTER) ---
+        function getWatchChar(year, month, day) {
+            const anchorDate = new Date(2025, 11, 1); // 2025-12-01 = A Watch
+            anchorDate.setHours(12, 0, 0, 0);
+            const targetDate = new Date(year, month, day);
+            targetDate.setHours(12, 0, 0, 0);
             
+            const oneDay = 24 * 60 * 60 * 1000;
+            const diffDays = Math.round((targetDate.getTime() - anchorDate.getTime()) / oneDay);
+            let remainder = diffDays % 3;
+            if (remainder < 0) remainder += 3;
+
+            if (remainder === 0) return 'A';
+            if (remainder === 1) return 'B';
+            return 'C';
+        }
+
+        function initCalendar() {
+            const date = new Date();
+            currentYear = date.getFullYear();
+            currentMonth = date.getMonth();
+            renderCalendar(currentYear, currentMonth);
+        }
+
+        window.changeMonth = (delta) => {
+            currentMonth += delta;
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; } 
+            else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+            renderCalendar(currentYear, currentMonth);
+        };
+
+        function renderCalendar(year, month) {
+            const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+            document.getElementById('month-year-display').innerText = `${monthNames[month]} // ${year}`;
+
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const grid = document.getElementById('calendar-grid');
+            grid.innerHTML = '';
+
+            for (let i = 0; i < firstDay; i++) {
+                const blank = document.createElement('div');
+                blank.className = "bg-gray-100 border border-gray-300 opacity-30 hidden md:block"; 
+                grid.appendChild(blank);
+            }
+
+            for (let i = 1; i <= daysInMonth; i++) {
+                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                const watchChar = getWatchChar(year, month, i);
+                
+                // [顏色設定]
+                let watchColorClass = "";
+                if (watchChar === 'A') watchColorClass = "bg-purple-700 text-white";
+                if (watchChar === 'B') watchColorClass = "bg-green-700 text-white";
+                if (watchChar === 'C') watchColorClass = "bg-blue-700 text-white";
+
+                const dayDiv = document.createElement('div');
+                dayDiv.className = "relative bg-white border border-gray-400 min-h-[80px] md:h-28 p-1 hover:bg-yellow-50 transition-colors cursor-pointer group flex flex-col justify-between";
+                dayDiv.onclick = () => openEventModal(dateKey, watchChar);
+
+                const headerDiv = document.createElement('div');
+                headerDiv.className = "flex justify-between items-start";
+
+                const num = document.createElement('span');
+                num.className = "font-mono font-bold text-gray-800 text-sm pl-1";
+                num.innerText = i;
+                
+                const today = new Date();
+                if (today.getFullYear() === year && today.getMonth() === month && today.getDate() === i) {
+                    num.className += " bg-black text-white px-1.5";
+                    dayDiv.classList.add("ring-4", "ring-yellow-400", "z-10");
+                }
+
+                const watchBadge = document.createElement('span');
+                watchBadge.className = `font-industrial text-[10px] px-1.5 py-0.5 border border-black shadow-sm ${watchColorClass}`;
+                watchBadge.innerText = watchChar;
+
+                headerDiv.appendChild(num);
+                headerDiv.appendChild(watchBadge);
+                dayDiv.appendChild(headerDiv);
+
+                const eventContainer = document.createElement('div');
+                eventContainer.id = `day-${dateKey}`;
+                eventContainer.className = "flex flex-col gap-1 overflow-hidden mt-1";
+                
+                if (eventsCache[dateKey]) {
+                    renderDayEvents(eventContainer, eventsCache[dateKey]);
+                }
+
+                dayDiv.appendChild(eventContainer);
+                grid.appendChild(dayDiv);
+            }
+        }
+
+        function renderDayEvents(container, text) {
+            container.innerHTML = '';
+            if(!text) return;
+            const badge = document.createElement('div');
+            badge.className = "text-[10px] md:text-xs bg-yellow-400 text-black px-1 font-bold truncate border-l-4 border-black";
+            badge.innerText = text;
+            container.appendChild(badge);
+        }
+
+        window.openEventModal = (dateKey, watchChar) => {
+            const eventText = prompt(`[${watchChar}更] 請輸入 ${dateKey} 的事項 (留空刪除):`, eventsCache[dateKey] || "");
+            if (eventText !== null) saveEvent(dateKey, eventText);
+        };
+
+        async function saveEvent(dateKey, text) {
+            if (!db || !currentUser) return;
+            try {
+                const docRef = doc(getCollectionRef("calendar_events"), dateKey);
+                if (text.trim() === "") await deleteDoc(docRef);
+                else await setDoc(docRef, { date: dateKey, text: text, updatedAt: serverTimestamp(), updatedBy: currentUser.uid });
+            } catch (e) { console.error(e); }
+        }
+
+        // --- Realtime Listeners (ALL 3 FEATURES) ---
+        function initRealtimeListeners() {
+            if (!db) return;
+
+            // 1. Calendar
+            onSnapshot(getCollectionRef("calendar_events"), (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    const data = change.doc.data();
+                    const dateKey = change.doc.id;
+                    eventsCache[dateKey] = change.type === "removed" ? null : data.text;
+                    const container = document.getElementById(`day-${dateKey}`);
+                    if (container) {
+                        if (change.type === "removed") container.innerHTML = '';
+                        else renderDayEvents(container, data.text);
+                    }
+                });
+            });
+
+            // 2. Tasks (Mission Log)
+            const qTasks = query(getCollectionRef("tasks"), orderBy("createdAt", "desc"));
             onSnapshot(qTasks, (snapshot) => {
                 const list = document.getElementById('todo-list');
                 list.innerHTML = ''; 
                 if (snapshot.empty) list.innerHTML = '<li class="text-center text-gray-400 font-mono py-4">暫無任務 // NO DATA</li>';
-
                 snapshot.forEach((docSnap) => {
                     const task = docSnap.data();
                     const id = docSnap.id;
@@ -164,26 +259,22 @@
                 });
             });
 
-            // Notes 監聽
-            const notesRef = getCollectionRef("notes");
-            const qNotes = query(notesRef, orderBy("createdAt", "desc"));
-            
+            // 3. Notes (Field Notes)
+            const qNotes = query(getCollectionRef("notes"), orderBy("createdAt", "desc"));
             onSnapshot(qNotes, (snapshot) => {
                 const container = document.getElementById('notes-container');
                 container.innerHTML = '';
-                if (snapshot.empty) container.innerHTML = '<div class="text-center text-gray-400 font-mono py-4 col-span-1">暫無筆記 // NO NOTES</div>';
-
+                if (snapshot.empty) container.innerHTML = '<div class="text-center text-gray-400 font-mono py-4 col-span-1">暫無筆記 // EMPTY</div>';
                 snapshot.forEach((docSnap) => {
                     const note = docSnap.data();
                     const id = docSnap.id;
                     const div = document.createElement('div');
-                    div.className = "bg-white p-4 border-2 border-gray-800 shadow-[4px_4px_0px_rgba(0,0,0,0.8)] relative group transform hover:-translate-y-1 transition-transform";
+                    div.className = "bg-white p-3 border-2 border-black shadow-[4px_4px_0px_#ccc] relative group transform hover:-translate-y-1 transition-transform";
                     div.innerHTML = `
-                        <div class="absolute -top-3 left-1/2 transform -translate-x-1/2 w-3 h-3 bg-gray-300 rounded-full border border-gray-400 shadow-inner"></div>
                         <p class="font-mono text-sm text-gray-800 whitespace-pre-wrap font-bold">${note.text}</p>
-                        <div class="mt-4 text-xs text-gray-500 border-t border-gray-200 pt-2 flex justify-between items-center">
+                        <div class="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-1 flex justify-between items-center">
                             <span class="bg-gray-200 px-1 text-black font-mono">BY: ${note.author || '同事'}</span>
-                            <button onclick="deleteItem('notes', '${id}')" class="text-red-600 font-bold opacity-0 group-hover:opacity-100 hover:underline">DELETE</button>
+                            <button onclick="deleteItem('notes', '${id}')" class="text-red-600 font-bold opacity-0 group-hover:opacity-100 hover:underline">DEL</button>
                         </div>
                     `;
                     container.appendChild(div);
@@ -191,176 +282,174 @@
             });
         }
 
+        // --- Data Operations ---
         window.addTask = async () => {
             const input = document.getElementById('todo-input');
             const text = input.value.trim();
-            if (!text || !db || !currentUser) return;
+            if (!text || !db) return;
             try {
-                const tasksRef = getCollectionRef("tasks");
-                await addDoc(tasksRef, {
-                    text: text,
-                    done: false,
-                    createdAt: serverTimestamp(),
-                    createdBy: currentUser.uid
-                });
-                input.value = ''; 
-            } catch (e) { 
-                console.error(e); 
-                alert("新增失敗：請確認 Firestore 已設定為 Test Mode");
-            }
+                await addDoc(getCollectionRef("tasks"), { text: text, done: false, createdAt: serverTimestamp(), createdBy: currentUser.uid });
+                input.value = '';
+            } catch (e) { console.error(e); }
+        };
+
+        window.toggleTask = async (id, currentStatus) => {
+            if(!db) return;
+            try { await updateDoc(doc(getCollectionRef("tasks"), id), { done: !currentStatus }); } catch(e) { console.error(e); }
         };
 
         window.addNote = async () => {
             const input = document.getElementById('note-input');
             const authorInput = document.getElementById('note-author');
             const text = input.value.trim();
-            const author = authorInput.value.trim() || '某同事';
-            if (!text || !db || !currentUser) return;
+            const author = authorInput.value.trim();
+            if (!text || !db) return;
             try {
-                const notesRef = getCollectionRef("notes");
-                await addDoc(notesRef, {
-                    text: text,
-                    author: author,
-                    createdAt: serverTimestamp(),
-                    createdBy: currentUser.uid
-                });
+                await addDoc(getCollectionRef("notes"), { text: text, author: author, createdAt: serverTimestamp(), createdBy: currentUser.uid });
                 input.value = '';
-            } catch (e) { 
-                console.error(e);
-                alert("新增失敗：請確認 Firestore 已設定為 Test Mode");
-            }
-        };
-
-        // [修正] 確保 toggle 同 delete 都用到正確路徑
-        window.toggleTask = async (id, currentStatus) => {
-            if(!db || !currentUser) return;
-            try {
-                const colRef = getCollectionRef("tasks"); // 用 helper 攞路徑
-                const taskDocRef = doc(colRef, id);
-                await updateDoc(taskDocRef, { done: !currentStatus });
-            } catch(e) { console.error(e); }
+            } catch (e) { console.error(e); }
         };
 
         window.deleteItem = async (colName, id) => {
-            if(!db || !currentUser) return;
-            if(confirm('確定刪除？')) {
-                try {
-                    const colRef = getCollectionRef(colName); // 用 helper 攞路徑
-                    const itemDocRef = doc(colRef, id);
-                    await deleteDoc(itemDocRef);
-                } catch(e) { console.error(e); }
+            if(!db) return;
+            if(confirm('Confirm Delete?')) {
+                try { await deleteDoc(doc(getCollectionRef(colName), id)); } catch(e) { console.error(e); }
             }
         };
-        
-        document.getElementById('todo-input').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') window.addTask();
-        });
     </script>
 
     <style>
-        /* 淺色工業風樣式 */
+        /* Middle East Style */
         body {
-            background-color: #f0f0f0; 
+            background-color: #f0f0f0;
             color: #111;
             background-image: 
                 linear-gradient(#ccc 1px, transparent 1px),
                 linear-gradient(90deg, #ccc 1px, transparent 1px);
             background-size: 20px 20px;
-            background-position: center center;
         }
         .font-industrial { font-family: 'Black Ops One', cursive; }
         .hazard-stripe {
             background: repeating-linear-gradient(45deg, #FFD700, #FFD700 10px, #111 10px, #111 20px);
         }
-        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #e5e5e5; }
-        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        ::-webkit-scrollbar-thumb { background: #333; }
         .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .blink { animation: blinker 1s linear infinite; }
-        @keyframes blinker { 50% { opacity: 0; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center font-mono">
+<body class="min-h-screen flex flex-col items-center font-mono pb-10">
 
-    <!-- 登入鎖定畫面 -->
+    <!-- Login -->
     <div id="login-modal" class="fixed inset-0 z-50 bg-neutral-900 flex items-center justify-center p-4">
         <div class="bg-white border-4 border-black p-8 w-full max-w-md shadow-[8px_8px_0px_#FFD700] relative text-center">
             <div class="hazard-stripe h-4 w-full absolute top-0 left-0 border-b-2 border-black"></div>
-            <h1 class="text-3xl font-industrial text-black mt-6 mb-2 tracking-widest uppercase">Restricted Area</h1>
-            <p class="font-mono text-gray-500 text-sm mb-6 bg-yellow-100 inline-block px-2">AUTH REQUIRED</p>
-            <input type="password" id="access-code" placeholder="ENTER PASSCODE" class="w-full bg-gray-100 border-2 border-black text-black font-mono text-center text-xl p-3 mb-4 focus:outline-none focus:bg-white placeholder-gray-400">
-            <button onclick="checkPass()" class="w-full bg-black hover:bg-gray-800 text-white font-bold font-mono py-3 px-4 transition-colors border-2 border-transparent hover:border-yellow-400">ACCESS SYSTEM >></button>
-            <p id="error-msg" class="text-red-600 font-bold mt-4 hidden blink">ACCESS DENIED</p>
+            <h1 class="text-3xl font-industrial text-black mt-6 mb-2 tracking-widest uppercase">RESTRICTED AREA</h1>
+            <input type="password" id="access-code" placeholder="ENTER CODE (8888)" class="w-full bg-gray-100 border-2 border-black text-black font-mono text-center text-xl p-3 mb-4 focus:outline-none focus:bg-white">
+            <button onclick="checkPass()" class="w-full bg-black hover:bg-gray-800 text-white font-bold font-mono py-3 px-4 border-2 border-transparent hover:border-yellow-400">ACCESS SYSTEM >></button>
+            <p id="error-msg" class="text-red-600 font-bold mt-4 hidden">ACCESS DENIED</p>
             <div class="hazard-stripe h-4 w-full absolute bottom-0 left-0 border-t-2 border-black"></div>
         </div>
     </div>
 
-    <!-- 主程式介面 -->
-    <div id="main-app" class="w-full max-w-7xl p-4 hidden animate-fade-in mt-4">
+    <!-- Main App -->
+    <div id="main-app" class="w-full max-w-[1400px] p-2 md:p-4 hidden animate-fade-in mt-2">
         
-        <header class="bg-white border-4 border-black p-6 mb-8 shadow-[8px_8px_0px_rgba(0,0,0,0.2)] flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
-            <div class="absolute -right-10 -top-10 text-9xl text-gray-100 font-industrial select-none z-0 opacity-50">FIRE</div>
+        <!-- Header -->
+        <header class="bg-white border-4 border-black p-6 mb-6 shadow-[6px_6px_0px_rgba(0,0,0,0.2)] flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
+            <div class="absolute -right-10 -top-10 text-9xl text-gray-200 font-industrial select-none z-0 opacity-50">FIRE</div>
             <div class="z-10 relative">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="bg-yellow-400 text-black text-xs font-bold px-2 py-0.5 border border-black">HK REGION</span>
-                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                    <span class="bg-black text-white text-xs font-bold px-2 py-0.5 border border-black">MIDDLE EAST TEAM</span>
                 </div>
                 <h1 class="text-4xl md:text-5xl font-industrial text-black tracking-wider leading-tight">MIDDLE EAST FIRE<br>TEAM DASHBOARD</h1>
             </div>
-            <div class="z-10 bg-gray-100 border-2 border-black p-3 min-w-[180px] text-center flex flex-col items-center shadow-md">
-                <div class="text-xs font-bold text-gray-500 border-b border-gray-300 w-full mb-2 pb-1">WEATHER CONDITION</div>
+            <div class="z-10 bg-gray-100 border-2 border-black p-2 min-w-[160px] text-center shadow-md">
+                <div class="text-[10px] font-bold text-gray-500 border-b border-gray-300 w-full mb-1">WEATHER CONDITION</div>
                 <div class="flex items-center justify-center gap-2">
-                    <img id="weather-icon" src="" alt="Weather" class="w-10 h-10 object-contain">
-                    <div class="text-3xl font-bold text-black font-industrial" id="weather-temp">--°C</div>
+                    <img id="weather-icon" src="" alt="Wx" class="w-8 h-8 object-contain">
+                    <div class="text-2xl font-bold text-black font-industrial" id="weather-temp">--°C</div>
                 </div>
-                <div class="text-xs font-bold text-gray-600 mt-1" id="weather-desc">LOADING...</div>
+                <div class="text-[10px] font-bold text-gray-600 mt-1" id="weather-desc">LOADING</div>
             </div>
         </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <section class="bg-white border-4 border-black shadow-[8px_8px_0px_#ccc]">
-                <div class="bg-black p-3 flex justify-between items-center text-white">
-                    <h2 class="font-industrial text-xl tracking-wider text-yellow-400">>> MISSION LOG</h2>
-                    <span class="text-xs font-mono bg-gray-800 px-2 py-1 border border-gray-600">PENDING TASKS</span>
-                </div>
-                <div class="p-6">
-                    <div class="flex gap-2 mb-6">
-                        <input type="text" id="todo-input" placeholder="新增任務..." class="flex-1 bg-gray-100 border-2 border-black text-black font-mono p-3 focus:outline-none focus:bg-white placeholder-gray-500">
-                        <button onclick="addTask()" class="bg-yellow-400 hover:bg-yellow-500 text-black px-6 font-bold font-mono border-2 border-black shadow-[2px_2px_0px_black] active:translate-y-1 active:shadow-none transition-all">ADD</button>
+        <!-- Main Layout: 2/3 Calendar, 1/3 Sidebar (Tasks + Notes) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- 1. DUTY ROSTER (Calendar) - Takes 2 cols on large screen -->
+            <section class="lg:col-span-2 bg-white border-4 border-black shadow-[8px_8px_0px_#ccc]">
+                <div class="bg-black p-3 flex justify-between items-center text-white border-b-4 border-black">
+                    <h2 class="font-industrial text-xl tracking-wider text-yellow-400">>> DUTY ROSTER</h2>
+                    <div class="flex items-center gap-4">
+                        <button onclick="changeMonth(-1)" class="hover:text-yellow-400 font-bold text-xl px-2">&lt;</button>
+                        <span id="month-year-display" class="font-mono font-bold text-lg min-w-[120px] text-center">LOADING...</span>
+                        <button onclick="changeMonth(1)" class="hover:text-yellow-400 font-bold text-xl px-2">&gt;</button>
                     </div>
-                    <ul id="todo-list" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scroll">
-                        <li class="text-center text-gray-400 font-mono py-4">SYSTEM CONNECTING...</li>
-                    </ul>
+                </div>
+                
+                <div class="p-4 bg-gray-50">
+                    <div class="flex justify-end gap-3 mb-2 font-mono text-[10px] md:text-xs">
+                        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-purple-700 border border-black"></span> A Watch</div>
+                        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-green-700 border border-black"></span> B Watch</div>
+                        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-700 border border-black"></span> C Watch</div>
+                    </div>
+                    <div class="grid grid-cols-7 gap-1 mb-1 text-center">
+                        <div class="text-red-700 font-bold font-mono text-sm">SUN</div>
+                        <div class="font-bold font-mono text-sm">MON</div>
+                        <div class="font-bold font-mono text-sm">TUE</div>
+                        <div class="font-bold font-mono text-sm">WED</div>
+                        <div class="font-bold font-mono text-sm">THU</div>
+                        <div class="font-bold font-mono text-sm">FRI</div>
+                        <div class="font-bold font-mono text-sm">SAT</div>
+                    </div>
+                    <div id="calendar-grid" class="grid grid-cols-7 gap-1 bg-gray-200 border border-gray-300 p-1"></div>
                 </div>
             </section>
 
-            <section class="bg-white border-4 border-black shadow-[8px_8px_0px_#ccc]">
-                <div class="bg-black p-3 flex justify-between items-center text-white">
-                    <h2 class="font-industrial text-xl tracking-wider text-blue-400">>> FIELD NOTES</h2>
-                    <span class="text-xs font-mono bg-gray-800 px-2 py-1 border border-gray-600">MEMO BOARD</span>
-                </div>
-                <div class="p-6 bg-gray-50">
-                    <div class="bg-white p-4 border-2 border-gray-300 mb-6 shadow-inner">
-                        <input type="text" id="note-author" placeholder="你的名字..." class="bg-transparent border-b-2 border-gray-200 text-black font-bold text-xs w-full mb-2 focus:outline-none focus:border-black transition-colors">
-                        <textarea id="note-input" placeholder="輸入筆記內容..." rows="2" class="w-full bg-transparent text-black font-mono text-sm focus:outline-none resize-none placeholder-gray-400"></textarea>
-                        <div class="text-right mt-2">
-                            <button onclick="addNote()" class="text-xs bg-black hover:bg-gray-800 text-white px-4 py-2 font-mono font-bold">POST NOTE</button>
+            <!-- Sidebar: Stacked Tasks & Notes -->
+            <div class="flex flex-col gap-6 lg:h-full">
+                
+                <!-- 2. MISSION LOG (Tasks) -->
+                <section class="bg-white border-4 border-black shadow-[8px_8px_0px_#ccc]">
+                    <div class="bg-black p-3 flex justify-between items-center text-white">
+                        <h2 class="font-industrial text-xl tracking-wider text-yellow-400">>> MISSION LOG</h2>
+                        <span class="text-xs font-mono bg-gray-800 px-2 py-1 border border-gray-600">TASKS</span>
+                    </div>
+                    <div class="p-4">
+                        <div class="flex gap-2 mb-4">
+                            <input type="text" id="todo-input" placeholder="新增任務..." class="flex-1 bg-gray-100 border-2 border-black text-black font-mono p-2 focus:outline-none focus:bg-white placeholder-gray-500">
+                            <button onclick="addTask()" class="bg-yellow-400 hover:bg-yellow-500 text-black px-4 font-bold font-mono border-2 border-black shadow-[2px_2px_0px_black] active:translate-y-1 active:shadow-none transition-all">ADD</button>
                         </div>
+                        <ul id="todo-list" class="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scroll">
+                            <li class="text-center text-gray-400 font-mono py-4">LOADING...</li>
+                        </ul>
                     </div>
-                    <div id="notes-container" class="grid grid-cols-1 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scroll">
-                        <div class="text-center text-gray-400 font-mono py-4">LOADING NOTES...</div>
+                </section>
+
+                <!-- 3. FIELD NOTES -->
+                <section class="bg-white border-4 border-black shadow-[8px_8px_0px_#ccc] flex flex-col flex-1">
+                    <div class="bg-black p-3 flex justify-between items-center text-white border-b-4 border-black">
+                        <h2 class="font-industrial text-xl tracking-wider text-blue-400">>> FIELD NOTES</h2>
+                        <span class="text-xs font-mono bg-gray-800 px-2 py-1">MEMO</span>
                     </div>
-                </div>
-            </section>
+                    <div class="p-4 bg-gray-100 flex-1 flex flex-col overflow-hidden min-h-[300px]">
+                        <div class="bg-white p-3 border-2 border-black mb-4 shadow-sm shrink-0">
+                            <input type="text" id="note-author" placeholder="你的名字..." class="bg-transparent border-b-2 border-gray-200 text-black font-bold text-xs w-full mb-2 focus:outline-none focus:border-black">
+                            <textarea id="note-input" placeholder="輸入備忘..." rows="2" class="w-full bg-transparent text-black font-mono text-sm focus:outline-none resize-none placeholder-gray-400"></textarea>
+                            <button onclick="addNote()" class="w-full mt-2 text-xs bg-black hover:bg-gray-800 text-white py-2 font-mono font-bold uppercase border-2 border-transparent hover:border-yellow-400 transition-all">Add Note</button>
+                        </div>
+                        <div id="notes-container" class="space-y-3 overflow-y-auto pr-1 custom-scroll flex-1"></div>
+                    </div>
+                </section>
+
+            </div>
         </div>
 
-        <footer class="mt-12 text-center pb-8">
-            <p class="font-mono text-xs text-gray-500 bg-white inline-block px-4 py-1 border border-gray-300">MIDDLE EAST FIRE TEAM // SYSTEM ONLINE // VER 2.0</p>
+        <footer class="mt-8 text-center pb-8">
+            <p class="font-mono text-[10px] text-gray-500 bg-white inline-block px-4 py-1 border border-gray-300">MIDDLE EAST FIRE TEAM // SYSTEM VER 5.0</p>
         </footer>
     </div>
 </body>
