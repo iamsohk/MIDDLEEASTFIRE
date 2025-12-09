@@ -142,7 +142,8 @@
 
             for (let i = 0; i < firstDay; i++) {
                 const blank = document.createElement('div');
-                blank.className = "bg-gray-100 border border-gray-300 opacity-30 hidden md:block"; 
+                // [修正] 移除 hidden md:block，確保手機版也會顯示空白格，防止日期錯位
+                blank.className = "bg-gray-100 border border-gray-300 opacity-30"; 
                 grid.appendChild(blank);
             }
 
