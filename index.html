@@ -89,7 +89,7 @@
 
         window.checkPass = () => {
             const pass = document.getElementById('access-code').value;
-            if (pass === '') {
+            if (pass === '8888') {
                 document.getElementById('login-modal').classList.add('hidden');
                 document.getElementById('main-app').classList.remove('hidden');
                 window.dispatchEvent(new Event('resize'));
@@ -346,7 +346,7 @@
         <div class="bg-white border-4 border-black p-8 w-full max-w-md shadow-[8px_8px_0px_#FFD700] relative text-center">
             <div class="hazard-stripe h-4 w-full absolute top-0 left-0 border-b-2 border-black"></div>
             <h1 class="text-3xl font-industrial text-black mt-6 mb-2 tracking-widest uppercase">RESTRICTED AREA</h1>
-            <input type="password" id="access-code" placeholder="ENTER CODE (8888)" class="w-full bg-gray-100 border-2 border-black text-black font-mono text-center text-xl p-3 mb-4 focus:outline-none focus:bg-white">
+            <input type="password" id="access-code" placeholder="ENTER CODE" class="w-full bg-gray-100 border-2 border-black text-black font-mono text-center text-xl p-3 mb-4 focus:outline-none focus:bg-white">
             <button onclick="checkPass()" class="w-full bg-black hover:bg-gray-800 text-white font-bold font-mono py-3 px-4 border-2 border-transparent hover:border-yellow-400">ACCESS SYSTEM >></button>
             <p id="error-msg" class="text-red-600 font-bold mt-4 hidden">ACCESS DENIED</p>
             <div class="hazard-stripe h-4 w-full absolute bottom-0 left-0 border-t-2 border-black"></div>
