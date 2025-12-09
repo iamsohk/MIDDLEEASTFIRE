@@ -63,7 +63,18 @@
 
             } catch (e) {
                 console.error("Firebase Init Error:", e);
-                alert("系統連線失敗，請檢查 Firebase Console 是否已開通 Database");
+                // [更新] 更詳細的錯誤提示，幫助除錯
+                let errorMsg = "系統連線失敗 (System Error)\n\n";
+                
+                if (e.code === 'auth/operation-not-allowed') {
+                    errorMsg += "原因：未開啟「匿名登入」權限。\n解決：請去 Firebase Console -> Authentication -> 把 'Anonymous' 設為 Enable。";
+                } else if (e.code === 'permission-denied') {
+                    errorMsg += "原因：資料庫權限不足。\n解決：請檢查 Firestore Rules 是否設為 Test Mode。";
+                } else {
+                    errorMsg += "錯誤訊息：" + e.message + "\n\n請檢查 Config 是否填錯，或 Database 是否已建立。";
+                }
+                
+                alert(errorMsg);
             }
         }
 
@@ -268,4 +279,89 @@
         .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0);
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .blink { animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center font-mono">
+
+    <!-- 登入鎖定畫面 -->
+    <div id="login-modal" class="fixed inset-0 z-50 bg-neutral-900 flex items-center justify-center p-4">
+        <div class="bg-white border-4 border-black p-8 w-full max-w-md shadow-[8px_8px_0px_#FFD700] relative text-center">
+            <div class="hazard-stripe h-4 w-full absolute top-0 left-0 border-b-2 border-black"></div>
+            <h1 class="text-3xl font-industrial text-black mt-6 mb-2 tracking-widest uppercase">Restricted Area</h1>
+            <p class="font-mono text-gray-500 text-sm mb-6 bg-yellow-100 inline-block px-2">AUTH REQUIRED</p>
+            <input type="password" id="access-code" placeholder="ENTER PASSCODE" class="w-full bg-gray-100 border-2 border-black text-black font-mono text-center text-xl p-3 mb-4 focus:outline-none focus:bg-white placeholder-gray-400">
+            <button onclick="checkPass()" class="w-full bg-black hover:bg-gray-800 text-white font-bold font-mono py-3 px-4 transition-colors border-2 border-transparent hover:border-yellow-400">ACCESS SYSTEM >></button>
+            <p id="error-msg" class="text-red-600 font-bold mt-4 hidden blink">ACCESS DENIED</p>
+            <div class="hazard-stripe h-4 w-full absolute bottom-0 left-0 border-t-2 border-black"></div>
+        </div>
+    </div>
+
+    <!-- 主程式介面 -->
+    <div id="main-app" class="w-full max-w-7xl p-4 hidden animate-fade-in mt-4">
+        
+        <header class="bg-white border-4 border-black p-6 mb-8 shadow-[8px_8px_0px_rgba(0,0,0,0.2)] flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
+            <div class="absolute -right-10 -top-10 text-9xl text-gray-100 font-industrial select-none z-0 opacity-50">FIRE</div>
+            <div class="z-10 relative">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="bg-yellow-400 text-black text-xs font-bold px-2 py-0.5 border border-black">HK REGION</span>
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                </div>
+                <h1 class="text-4xl md:text-5xl font-industrial text-black tracking-wider leading-tight">MIDDLE EAST FIRE<br>TEAM DASHBOARD</h1>
+            </div>
+            <div class="z-10 bg-gray-100 border-2 border-black p-3 min-w-[180px] text-center flex flex-col items-center shadow-md">
+                <div class="text-xs font-bold text-gray-500 border-b border-gray-300 w-full mb-2 pb-1">WEATHER CONDITION</div>
+                <div class="flex items-center justify-center gap-2">
+                    <img id="weather-icon" src="" alt="Weather" class="w-10 h-10 object-contain">
+                    <div class="text-3xl font-bold text-black font-industrial" id="weather-temp">--°C</div>
+                </div>
+                <div class="text-xs font-bold text-gray-600 mt-1" id="weather-desc">LOADING...</div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <section class="bg-white border-4 border-black shadow-[8px_8px_0px_#ccc]">
+                <div class="bg-black p-3 flex justify-between items-center text-white">
+                    <h2 class="font-industrial text-xl tracking-wider text-yellow-400">>> MISSION LOG</h2>
+                    <span class="text-xs font-mono bg-gray-800 px-2 py-1 border border-gray-600">PENDING TASKS</span>
+                </div>
+                <div class="p-6">
+                    <div class="flex gap-2 mb-6">
+                        <input type="text" id="todo-input" placeholder="新增任務..." class="flex-1 bg-gray-100 border-2 border-black text-black font-mono p-3 focus:outline-none focus:bg-white placeholder-gray-500">
+                        <button onclick="addTask()" class="bg-yellow-400 hover:bg-yellow-500 text-black px-6 font-bold font-mono border-2 border-black shadow-[2px_2px_0px_black] active:translate-y-1 active:shadow-none transition-all">ADD</button>
+                    </div>
+                    <ul id="todo-list" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scroll">
+                        <li class="text-center text-gray-400 font-mono py-4">SYSTEM CONNECTING...</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="bg-white border-4 border-black shadow-[8px_8px_0px_#ccc]">
+                <div class="bg-black p-3 flex justify-between items-center text-white">
+                    <h2 class="font-industrial text-xl tracking-wider text-blue-400">>> FIELD NOTES</h2>
+                    <span class="text-xs font-mono bg-gray-800 px-2 py-1 border border-gray-600">MEMO BOARD</span>
+                </div>
+                <div class="p-6 bg-gray-50">
+                    <div class="bg-white p-4 border-2 border-gray-300 mb-6 shadow-inner">
+                        <input type="text" id="note-author" placeholder="你的名字..." class="bg-transparent border-b-2 border-gray-200 text-black font-bold text-xs w-full mb-2 focus:outline-none focus:border-black transition-colors">
+                        <textarea id="note-input" placeholder="輸入筆記內容..." rows="2" class="w-full bg-transparent text-black font-mono text-sm focus:outline-none resize-none placeholder-gray-400"></textarea>
+                        <div class="text-right mt-2">
+                            <button onclick="addNote()" class="text-xs bg-black hover:bg-gray-800 text-white px-4 py-2 font-mono font-bold">POST NOTE</button>
+                        </div>
+                    </div>
+                    <div id="notes-container" class="grid grid-cols-1 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scroll">
+                        <div class="text-center text-gray-400 font-mono py-4">LOADING NOTES...</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <footer class="mt-12 text-center pb-8">
+            <p class="font-mono text-xs text-gray-500 bg-white inline-block px-4 py-1 border border-gray-300">MIDDLE EAST FIRE TEAM // SYSTEM ONLINE // VER 2.0</p>
+        </footer>
+    </div>
+</body>
+</html>
